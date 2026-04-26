@@ -1,0 +1,183 @@
+# rbpptx
+
+[![Gem Version](https://badge.fury.io/rb/rbpptx.svg?icon=si%3Arubygems)](https://badge.fury.io/rb/rbpptx)
+
+Read-and-edit Ruby gem for `.pptx` (PowerPoint, OOXML) files, modeled after
+[python-pptx](https://github.com/scanny/python-pptx).
+
+`rbpptx` is built around a single design promise: **what we don't understand,
+we don't touch**. The presentation is opened as a ZIP package, only the
+parts you mutate are re-serialized, and every other entry — slide layouts,
+masters, themes, embedded fonts, images, animations, hyperlink colors,
+PowerPoint-extension XML — round-trips byte-for-byte. Inside a slide that
+you do edit, only the `<a:p>` children of the targeted `<p:txBody>` are
+rewritten; surrounding `<p:nvSpPr>`, `<p:spPr>`, `<a:bodyPr>`, `<a:lstStyle>`,
+and any unknown OOXML extensions remain in place. The first existing
+`<a:rPr>` (font, size, color, language) is cloned onto each new run, so
+template formatting carries through to the replacement text.
+
+Supported in 0.1.0:
+
+- open an existing `.pptx`, enumerate slides in presentation order
+- read every shape's name and concatenated text (paragraph breaks rendered
+  as `\n`, soft line breaks `<a:br>` rendered as `\n`)
+- replace a shape's text via `shape.text = "..."`, preserving template run
+  properties from the first existing run
+- save back to a new path, or overwrite the original via temp-file + atomic
+  rename — unmodified entries stream through untouched
+
+Out of scope:
+
+- creating a presentation from scratch — `Rbpptx.new` is reserved for a
+  future release and currently raises `NotImplementedError`
+- inserting / deleting / reordering / duplicating slides
+- editing media (images, embedded fonts) or adding new shapes
+- placeholder-aware API (`slide.title`, `slide.placeholders[:body]`)
+- notes pages, comments, charts, SmartArt
+- legacy `.ppt` (BIFF/CFB) input — `rbpptx` reads OOXML `.pptx` only.
+  Convert first, e.g. `libreoffice --headless --convert-to pptx file.ppt`.
+  `Rbpptx.open` detects the OLE compound-file magic and raises
+  `Rbpptx::UnsupportedFormatError` with the conversion hint rather than
+  surfacing an opaque ZIP parse error from rubyzip.
+
+## Install
+
+```bash
+gem install rbpptx
+```
+
+Or in a `Gemfile`:
+
+```ruby
+gem "rbpptx"
+```
+
+Requires Ruby 3.2+, `nokogiri`, and `rubyzip`.
+
+## Usage
+
+### Reading
+
+```ruby
+require "rbpptx"
+
+Rbpptx.open("deck.pptx") do |pres|
+  pres.slides.each do |slide|
+    puts slide.name                        # => "slide1", "slide2", ...
+    slide.shapes.each do |shape|
+      puts "  #{shape.name}: #{shape.text.inspect}"
+    end
+  end
+end
+```
+
+`Rbpptx.open` yields a `Rbpptx::Presentation` and auto-closes the underlying
+ZIP when the block returns (or raises). Without a block it returns the
+presentation; call `pres.close` when done.
+
+Slides are enumerated in the order they appear inside the presentation —
+i.e. the order of `<p:sldId>` entries in `ppt/presentation.xml`, which is
+not necessarily the slide-part filename order.
+
+### Editing text and saving
+
+```ruby
+require "rbpptx"
+
+Rbpptx.open("template.pptx") do |pres|
+  pres.slides.first.shapes.first.text = "差し替えタイトル"
+  pres.slides[1].shapes.find { |s| s.text.include?("会社名") }.text = "Acme Inc."
+  pres.save("filled.pptx")
+end
+```
+
+Lines (separated by `"\n"`) become individual `<a:p>` paragraphs.
+
+### Same-path overwrite
+
+`Presentation#save` writes to a temp file in the target directory and
+atomically renames it into place, so `pres.save(original_path)` is safe:
+
+```ruby
+Rbpptx.open("deck.pptx") do |pres|
+  pres.slides.first.shapes.first.text = "Updated"
+  pres.save("deck.pptx")    # overwrite in place
+end
+```
+
+If the rename fails, the temp file is removed before the error propagates.
+
+### Inspecting without parsing every slide
+
+Slide XML is parsed lazily: enumerating slides, reading their `name`, or
+checking `dirty?` does not pay the per-slide parse cost. The first call to
+`slide.shapes` (or `slide.to_xml`) is what triggers the parse, and the
+result is cached.
+
+```ruby
+Rbpptx.open("deck.pptx") do |pres|
+  pres.slides.length                       # cheap
+  pres.slides.map(&:name)                  # cheap
+  pres.slides.first.shapes.first.text      # parses only slide 1
+end
+```
+
+### Error handling
+
+All `rbpptx` exceptions inherit from `Rbpptx::Error` and the messages carry
+the presentation path and (where relevant) the offending part name:
+
+| Error                              | Raised when                                                       |
+| ---                                | ---                                                               |
+| `Rbpptx::UnsupportedFormatError`   | file is empty, not a ZIP, or a legacy `.ppt` (BIFF/CFB) container |
+| `Rbpptx::PresentationFormatError`  | `_rels/.rels`, `ppt/presentation.xml`, or its rels are malformed  |
+| `Rbpptx::SlideFormatError`         | a slide part is missing or its XML cannot be parsed               |
+| `Rbpptx::SlideNotFoundError`       | reserved for future index-based slide accessors                   |
+| `Rbpptx::ClosedPresentationError`  | `slides` / `save` called after `close`                            |
+
+```ruby
+begin
+  Rbpptx.open("deck.pptx") { |pres| pres.slides.each { |s| process(s) } }
+rescue Rbpptx::UnsupportedFormatError => e
+  warn "not a pptx: #{e.message}"
+rescue Rbpptx::PresentationFormatError, Rbpptx::SlideFormatError => e
+  warn "malformed: #{e.message}"
+end
+```
+
+## Design Notes
+
+- **Fidelity over feature coverage.** `rbpptx` is a small, surgical editor,
+  not a PowerPoint object model. The bytes it doesn't understand are the
+  bytes it doesn't touch — including PowerPoint-version-specific extensions
+  (`p14:`, `p15:`, `ahyp:`, `mc:AlternateContent`) that a full object model
+  would have to know about to round-trip safely.
+- **Lazy parse, eager write.** Slides parse on first access; saves
+  re-serialize only the slides whose shapes have been mutated, and stream
+  every other ZIP entry through unchanged.
+- **rPr cloning, not rebuilding.** When a shape's text is replaced, the
+  first existing `<a:rPr>` is deep-cloned onto each new run. A template's
+  font, size, color, and `lang` attribute carry through without `rbpptx`
+  needing to model those properties.
+- **Atomic same-path save.** `save` writes to a sibling temp file and
+  renames it into place, so a crash mid-write cannot leave a half-written
+  `.pptx` at the target path.
+
+## Development
+
+Development in this repository assumes Ruby 3.4.8 (`.ruby-version`).
+
+```bash
+bundle install
+
+# Run tests
+bundle exec ruby -Ilib -Itest test/rbpptx_test.rb
+
+# Generate API docs
+bundle exec rake rdoc
+```
+
+The test suite uses a real `.pptx` placed at
+`samples/プロトタイピング プレゼンテーション.pptx` (gitignored). Sample-dependent
+tests skip with a clear message when the file is absent, so the suite still
+runs cleanly in a fresh checkout.

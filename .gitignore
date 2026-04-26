@@ -1,0 +1,7 @@
+*.gem
+*.log
+tmp/
+pkg/
+html/
+samples/
+.codex

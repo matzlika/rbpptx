@@ -1,0 +1,69 @@
+module Rbpptx
+  VERSION: String
+
+  type pathish = String | Pathname
+
+  def self.open: (pathish path) -> Presentation
+               | [T] (pathish path) { (Presentation) -> T } -> T
+  def self.new: () -> Presentation
+
+  class Error < StandardError
+  end
+
+  class UnsupportedFormatError < Error
+  end
+
+  class PresentationFormatError < Error
+  end
+
+  class SlideFormatError < Error
+  end
+
+  class SlideNotFoundError < Error
+  end
+
+  class ClosedPresentationError < Error
+  end
+
+  class Presentation
+    P_NS: String
+    A_NS: String
+    R_NS: String
+    PKG_REL_NS: String
+    OFFICE_DOC_REL_TYPE: String
+    SLIDE_REL_TYPE: String
+
+    attr_reader path: String
+
+    def self.open: (pathish path) -> Presentation
+    def initialize: (pathish path) -> void
+    def slides: () -> Array[Slide]
+    def save: (pathish path) -> String
+    def close: () -> bool
+    def closed?: () -> bool
+  end
+
+  class Slide
+    P_NS: String
+
+    attr_reader part_name: String
+
+    def initialize: (zip: untyped, part_name: String) -> void
+    def name: () -> String
+    def shapes: () -> Array[Shape]
+    def dirty?: () -> bool
+    def mark_dirty!: () -> bool
+    def clear_dirty!: () -> bool
+    def to_xml: () -> String
+  end
+
+  class Shape
+    P_NS: String
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: Slide?) -> void
+    def name: () -> String?
+    def text: () -> String
+    def text=: (String new_text) -> String
+  end
+end
