@@ -70,11 +70,11 @@ module Rbpptx
           @zip.each do |entry|
             next if entry.directory?
 
-            out.put_next_entry(entry.name)
             if (override_xml = overrides[entry.name])
+              out.put_next_entry(entry.name)
               out.write(override_xml)
             else
-              entry.get_input_stream { |stream| IO.copy_stream(stream, out) }
+              out.copy_raw_entry(entry)
             end
           end
         end

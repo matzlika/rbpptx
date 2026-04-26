@@ -186,7 +186,9 @@ end
   would have to know about to round-trip safely.
 - **Lazy parse, eager write.** Slides parse on first access; saves
   re-serialize only the slides whose shapes have been mutated, and stream
-  every other ZIP entry through unchanged.
+  every other ZIP entry through with its already-deflated bytes
+  (`Zip::OutputStream#copy_raw_entry`) — no decompress, no re-deflate.
+  Bit-identical preservation, not just content-identical.
 - **rPr cloning, not rebuilding.** When a shape's text is replaced, the
   first existing `<a:rPr>` is deep-cloned onto each new run. A template's
   font, size, color, and `lang` attribute carry through without `rbpptx`
@@ -208,9 +210,9 @@ Real-world deck (18 MB, 21 slides, embedded fonts and images), 5 iterations:
 
 | benchmark             | rbpptx (s) | python-pptx (s) | speedup |
 | ---                   | ---:       | ---:            | ---:    |
-| read (walk all text)  | **0.019**  | 0.088           | **4.6x faster** |
-| fill_one (1 + save)   | 0.558      | 0.565           | tied    |
-| fill_many (10 + save) | 0.558      | 0.554           | tied    |
+| read (walk all text)  | **0.019**  | 0.089           | **4.6x faster** |
+| fill_one (1 + save)   | **0.032**  | 0.553           | **17x faster**  |
+| fill_many (10 + save) | **0.042**  | 0.556           | **13x faster**  |
 
 Memory (RSS delta) on the read scenario:
 
@@ -219,9 +221,11 @@ Memory (RSS delta) on the read scenario:
 | rbpptx       | **3,232**  |
 | python-pptx  | 28,416     |
 
-`fill_one` / `fill_many` are bottlenecked by re-deflating the 18 MB ZIP
-package; both libraries do the same work there. The advantage on read is
-real and reproducible:
+The fill scenarios used to tie when both libraries re-deflated every
+ZIP entry on save. `rbpptx` now streams unmodified entries through with
+`Zip::OutputStream#copy_raw_entry`, so the deflate cost is paid only on
+the slide XML that actually changed — which is what unlocks the 13–17x
+gap on read-modify-write. The advantage is real and reproducible:
 
 ```bash
 bundle exec ruby benchmark/compare.rb

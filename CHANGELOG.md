@@ -38,6 +38,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Rbpptx::Shape#text` now delegates to `paragraphs.map(&:text).join("\n")`
   so the bulldozer getter and the surgical accessors share one
   implementation. Output unchanged.
+- `Rbpptx::Presentation#save` now uses `Zip::OutputStream#copy_raw_entry`
+  for unmodified entries, streaming their already-deflated bytes straight
+  into the output ZIP without a re-deflate. Modified slide XML is still
+  serialized and deflated normally. On the 18 MB sample deck this turns
+  fill_one save from 0.56s into 0.03s (about 17x faster than python-pptx)
+  and fill_many save from 0.56s into 0.04s (about 13x faster). Bytes
+  written for unmodified parts are now bit-identical to the source ZIP,
+  not just decompressed-content-equal — strictly stronger fidelity.
 
 ## [0.1.0] - 2026-04-26
 
