@@ -11,10 +11,9 @@ Gem::Specification.new do |spec|
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2"
   spec.metadata = {
-    "homepage_uri" => spec.homepage,
     "source_code_uri" => "https://github.com/matzlika/rbpptx",
     "bug_tracker_uri" => "https://github.com/matzlika/rbpptx/issues",
-    "changelog_uri" => "https://github.com/matzlika/rbpptx/releases"
+    "changelog_uri" => "https://github.com/matzlika/rbpptx/blob/main/CHANGELOG.md"
   }
 
   spec.files = Dir["lib/**/*.rb"] + Dir["sig/**/*.rbs"] + %w[CHANGELOG.md LICENSE.txt README.md Rakefile]

@@ -6,51 +6,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-
-- `Rbpptx::Paragraph` and `Rbpptx::Run` wrappers, exposing the OOXML
-  paragraph and run granularity below `Rbpptx::Shape`. `shape.paragraphs`
-  returns the shape's `<a:p>` children; `shape.runs` flattens runs across
-  paragraphs in document order.
-- `Rbpptx::Run#text=` — surgical text setter that rewrites only the run's
-  `<a:t>` content. `<a:rPr>`, `<a:br>` soft breaks, sibling runs,
-  paragraph properties, `<a:endParaRPr>`, and unknown OOXML extensions on
-  the shape are all preserved. Use this instead of `shape.text=` when the
-  template's per-run formatting matters (e.g. replacing a `{{slot}}`
-  marker inside a multi-run paragraph).
-- `Rbpptx::Shape#placeholder_type` — returns the placeholder role as a
-  Symbol (`:ctrTitle`, `:subTitle`, `:title`, `:body`, `:obj`, `:ftr`,
-  `:dt`, `:sldNum`, `:pic`, ...) by reading
-  `<p:nvSpPr>/<p:nvPr>/<p:ph type="...">`. Returns `:body` when the
-  placeholder element is present without a `type` attribute (matches the
-  OOXML default), and `nil` for non-placeholder shapes.
-- `benchmark/compare.rb` driving rbpptx scenarios and subprocessing
-  python-pptx via `uv run --with python-pptx`. Three scenarios: read (open
-  + walk all slides + concatenate text), fill_one (replace one shape +
-  save), fill_many (replace 10 shapes + save). Configurable via
-  `RBPPTX_BENCH_SAMPLE`, `RBPPTX_BENCH_WARMUP`, `RBPPTX_BENCH_ITERATIONS`.
-- `benchmark/fixture_gen.py` synthesizes a sized deck with `{{slot_*}}`
-  markers via python-pptx, so save-path benchmarks can isolate the cost
-  of the XML rewrite from the cost of re-deflating embedded media.
-- `benchmark/docxtemplater_compare.js` adds a Node.js comparison via
-  docxtemplater + pizzip. The driver in `compare.rb` now reports a
-  three-way table; on the 18 MB sample deck, rbpptx is 2.0x faster than
-  docxtemplater on read, 4.5x on fill_one, and 3.4x on fill_many.
-
-### Changed
-
-- `Rbpptx::Shape#text` now delegates to `paragraphs.map(&:text).join("\n")`
-  so the bulldozer getter and the surgical accessors share one
-  implementation. Output unchanged.
-- `Rbpptx::Presentation#save` now uses `Zip::OutputStream#copy_raw_entry`
-  for unmodified entries, streaming their already-deflated bytes straight
-  into the output ZIP without a re-deflate. Modified slide XML is still
-  serialized and deflated normally. On the 18 MB sample deck this turns
-  fill_one save from 0.56s into 0.03s (about 17x faster than python-pptx)
-  and fill_many save from 0.56s into 0.04s (about 13x faster). Bytes
-  written for unmodified parts are now bit-identical to the source ZIP,
-  not just decompressed-content-equal — strictly stronger fidelity.
-
 ## [0.1.0] - 2026-04-26
 
 - Initial public release.
@@ -74,11 +29,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first existing `<a:rPr>` (font, size, color, language) are cloned onto
   each new run so template formatting carries through. Shapes without a
   `<p:txBody>` raise `Rbpptx::Error` rather than silently failing.
+- `Rbpptx::Shape#placeholder_type` returns the placeholder role as a
+  Symbol (`:ctrTitle`, `:subTitle`, `:title`, `:body`, `:obj`, `:ftr`,
+  `:dt`, `:sldNum`, `:pic`, ...) by reading
+  `<p:nvSpPr>/<p:nvPr>/<p:ph type="...">`. Returns `:body` when the
+  placeholder element is present without a `type` attribute (matches the
+  OOXML default), and `nil` for non-placeholder shapes.
+- `Rbpptx::Shape#paragraphs` and `Rbpptx::Shape#runs` expose the OOXML
+  paragraph and run granularity below the shape: `paragraphs` returns the
+  shape's `<a:p>` children; `runs` flattens runs across paragraphs in
+  document order.
+- `Rbpptx::Paragraph` and `Rbpptx::Run` wrappers; `Run#text=` is a
+  surgical text setter that rewrites only the run's `<a:t>` content.
+  `<a:rPr>`, `<a:br>` soft breaks, sibling runs, paragraph properties,
+  `<a:endParaRPr>`, and unknown OOXML extensions on the shape are all
+  preserved. Use this instead of `Shape#text=` when the template's
+  per-run formatting matters (e.g. replacing a `{{slot}}` marker inside a
+  multi-run paragraph).
 - `Rbpptx::Presentation#save(path)` writes the presentation to disk via a
   sibling temp file and atomic rename, so `pres.save(original_path)` is
   safe. Only slides whose shapes have been mutated are re-serialized;
   every other ZIP entry (themes, masters, layouts, media, fonts, rels,
-  PowerPoint-extension XML) is streamed through byte-for-byte.
+  PowerPoint-extension XML) streams through with its already-deflated
+  bytes via `Zip::OutputStream#copy_raw_entry` — no inflate, no
+  re-deflate. The bytes of unmodified parts are bit-identical to the
+  source ZIP.
 - `Rbpptx::UnsupportedFormatError` raised by `Rbpptx.open` when the file
   is empty, not a ZIP container, or a legacy `.ppt` (BIFF/CFB) file.
   Legacy inputs are detected by the OLE compound-file magic and reported
@@ -89,3 +64,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   malformed-input and use-after-close cases. All error messages carry the
   presentation path and (where relevant) the offending part name.
 - RBS signatures for the public surface (`sig/rbpptx.rbs`).
+- `benchmark/compare.rb` drives a three-way comparison against
+  python-pptx (via `uv run --with python-pptx`) and docxtemplater +
+  PizZip (via `node`). Three scenarios — read (open + walk all slides +
+  concatenate text), fill_one (replace one shape + save), fill_many
+  (replace 10 shapes + save) — configurable via `RBPPTX_BENCH_SAMPLE`,
+  `RBPPTX_BENCH_WARMUP`, `RBPPTX_BENCH_ITERATIONS`. On the 18 MB sample
+  deck rbpptx is 4.7x / 16.8x / 13.0x faster than python-pptx and
+  2.0x / 4.5x / 3.4x faster than docxtemplater across the three
+  scenarios.
+- `benchmark/fixture_gen.py` synthesizes a sized deck with `{{slot_*}}`
+  markers via python-pptx, so save-path benchmarks can isolate the cost
+  of the XML rewrite from the cost of re-deflating embedded media.
