@@ -4,6 +4,7 @@ tmp/
 pkg/
 html/
 samples/
+test/fixtures/
 benchmark/node_modules/
 benchmark/package-lock.json
 .codex
