@@ -1,0 +1,10 @@
+{
+  "name": "rbpptx-benchmark",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node.js side of the rbpptx benchmark — invoked by compare.rb",
+  "dependencies": {
+    "docxtemplater": "^3.50.0",
+    "pizzip": "^3.1.7"
+  }
+}

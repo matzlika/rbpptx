@@ -3,6 +3,7 @@
 
 require "benchmark"
 require "json"
+require "open3"
 require "tmpdir"
 require_relative "../lib/rbpptx"
 
@@ -101,6 +102,32 @@ rescue JSON::ParserError => e
   []
 end
 
+def docxtemplater_results(scratch)
+  script = File.expand_path("docxtemplater_compare.js", __dir__)
+  bench_dir = File.expand_path(__dir__)
+  unless File.directory?(File.join(bench_dir, "node_modules"))
+    warn "benchmark/node_modules missing; run `cd benchmark && npm install` first"
+    return []
+  end
+  cmd = ["node", script, SAMPLE, scratch]
+  out, err, status = Open3.capture3(
+    {
+      "RBPPTX_BENCH_WARMUP" => WARMUP.to_s,
+      "RBPPTX_BENCH_ITERATIONS" => ITERATIONS.to_s,
+      "NODE_PATH" => File.join(bench_dir, "node_modules")
+    },
+    *cmd, chdir: bench_dir
+  )
+  unless status.success?
+    warn "docxtemplater benchmark failed: #{err}"
+    return []
+  end
+  JSON.parse(out.lines.last)
+rescue JSON::ParserError => e
+  warn "docxtemplater benchmark output not parseable: #{e.message}\n#{out}"
+  []
+end
+
 def capture(cmd)
   require "open3"
   Open3.capture3({ "RBPPTX_BENCH_WARMUP" => WARMUP.to_s, "RBPPTX_BENCH_ITERATIONS" => ITERATIONS.to_s }, *cmd)
@@ -143,7 +170,8 @@ Dir.mktmpdir("rbpptx-bench") do |scratch|
   ]
 
   py_rows = python_pptx_results(scratch)
-  rows = rb_rows + py_rows
+  node_rows = docxtemplater_results(scratch)
+  rows = rb_rows + py_rows + node_rows
 
   render_table(rows)
   puts

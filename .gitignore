@@ -4,4 +4,6 @@ tmp/
 pkg/
 html/
 samples/
+benchmark/node_modules/
+benchmark/package-lock.json
 .codex

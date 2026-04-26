@@ -208,32 +208,37 @@ deck carries.
 
 Real-world deck (18 MB, 21 slides, embedded fonts and images), 5 iterations:
 
-| benchmark             | rbpptx (s) | python-pptx (s) | speedup |
-| ---                   | ---:       | ---:            | ---:    |
-| read (walk all text)  | **0.019**  | 0.089           | **4.6x faster** |
-| fill_one (1 + save)   | **0.032**  | 0.553           | **17x faster**  |
-| fill_many (10 + save) | **0.042**  | 0.556           | **13x faster**  |
+| benchmark             | rbpptx (s) | python-pptx (s) | docxtemplater (s) | rbpptx vs python-pptx | rbpptx vs docxtemplater |
+| ---                   | ---:       | ---:            | ---:              | ---:                  | ---:                    |
+| read (walk all text)  | **0.019**  | 0.089           | 0.037             | **4.7x faster**       | **2.0x faster**         |
+| fill_one (1 + save)   | **0.033**  | 0.555           | 0.149             | **16.8x faster**      | **4.5x faster**         |
+| fill_many (10 + save) | **0.042**  | 0.545           | 0.144             | **13.0x faster**      | **3.4x faster**         |
 
 Memory (RSS delta) on the read scenario:
 
-| library      | rss Δ (kB) |
-| ---          | ---:       |
-| rbpptx       | **3,232**  |
-| python-pptx  | 28,416     |
+| library        | rss Δ (kB) |
+| ---            | ---:       |
+| rbpptx         | **2,956**  |
+| python-pptx    | 28,416     |
+| docxtemplater  | 34,816     |
 
-The fill scenarios used to tie when both libraries re-deflated every
-ZIP entry on save. `rbpptx` now streams unmodified entries through with
+The fill scenarios used to tie when each library re-deflated every ZIP
+entry on save. `rbpptx` now streams unmodified entries through with
 `Zip::OutputStream#copy_raw_entry`, so the deflate cost is paid only on
 the slide XML that actually changed — which is what unlocks the 13–17x
-gap on read-modify-write. The advantage is real and reproducible:
+gap against python-pptx and the 3–4.5x gap against docxtemplater on
+read-modify-write. The advantage is real and reproducible:
 
 ```bash
+cd benchmark && npm install && cd ..
 bundle exec ruby benchmark/compare.rb
 ```
 
 `uv` is required for the python-pptx subprocess; the comparison script
 invokes `uv run --with python-pptx python3 benchmark/python_pptx_compare.py`
-so no system-level Python install is mutated.
+so no system-level Python install is mutated. The Node.js side runs from
+`benchmark/node_modules` (gitignored); rerun `npm install` after pulling
+benchmark changes.
 
 To benchmark against a synthetic deck with no embedded media (isolates the
 XML-rewrite cost from binary deflate), generate a fixture first:

@@ -32,6 +32,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `benchmark/fixture_gen.py` synthesizes a sized deck with `{{slot_*}}`
   markers via python-pptx, so save-path benchmarks can isolate the cost
   of the XML rewrite from the cost of re-deflating embedded media.
+- `benchmark/docxtemplater_compare.js` adds a Node.js comparison via
+  docxtemplater + pizzip. The driver in `compare.rb` now reports a
+  three-way table; on the 18 MB sample deck, rbpptx is 2.0x faster than
+  docxtemplater on read, 4.5x on fill_one, and 3.4x on fill_many.
 
 ### Changed
 
