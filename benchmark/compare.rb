@@ -11,7 +11,7 @@ WARMUP = Integer(ENV.fetch("RBPPTX_BENCH_WARMUP", "1"))
 ITERATIONS = Integer(ENV.fetch("RBPPTX_BENCH_ITERATIONS", "5"))
 
 DEFAULT_SAMPLE = File.expand_path(
-  "../samples/プロトタイピング プレゼンテーション.pptx", __dir__
+  "../samples/prototyping_presentation.pptx", __dir__
 )
 SAMPLE = ENV.fetch("RBPPTX_BENCH_SAMPLE", DEFAULT_SAMPLE)
 

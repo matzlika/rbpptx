@@ -267,6 +267,5 @@ The bulk of the test suite runs against a small in-tree fixture
 `rubyzip` and hand-coded OOXML. No external sample is required for a
 fresh checkout to get meaningful coverage of read, edit, save, and
 fidelity behavior. A handful of dog-fooding tests (`test_sample_*`) opt
-into a real-world deck at
-`samples/プロトタイピング プレゼンテーション.pptx` (gitignored) and skip
-with a clear message when it is absent.
+into a real-world deck at `samples/prototyping_presentation.pptx`
+(gitignored) and skip with a clear message when it is absent.

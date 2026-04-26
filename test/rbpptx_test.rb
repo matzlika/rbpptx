@@ -6,7 +6,7 @@ require_relative "fixture_builder"
 
 class RbpptxTest < Minitest::Test
   SAMPLE_PATH = File.expand_path(
-    "../samples/プロトタイピング プレゼンテーション.pptx", __dir__
+    "../samples/prototyping_presentation.pptx", __dir__
   )
 
   FIXTURE_DIR = File.expand_path("fixtures", __dir__)
