@@ -5,9 +5,7 @@ require_relative "../lib/rbpptx"
 require_relative "fixture_builder"
 
 class RbpptxTest < Minitest::Test
-  SAMPLE_PATH = File.expand_path(
-    "../samples/prototyping_presentation.pptx", __dir__
-  )
+  SAMPLE_PATH = ENV["RBPPTX_SAMPLE"]
 
   FIXTURE_DIR = File.expand_path("fixtures", __dir__)
   FIXTURE_PATH = File.join(FIXTURE_DIR, "built.pptx")
@@ -365,36 +363,44 @@ class RbpptxTest < Minitest::Test
     end
   end
 
-  # ---------- sample-specific (skip when missing) ----------
+  # ---------- sample-specific (skip unless RBPPTX_SAMPLE is set) ----------
   #
-  # These keep the dog-fooding signal on a real-world deck: 21 slides, embedded
-  # fonts, multi-language text. They skip cleanly in CI / fresh checkouts where
-  # the gitignored sample is absent.
+  # These run only when the developer points RBPPTX_SAMPLE at a real-world
+  # .pptx. Assertions are content-agnostic on purpose so any reasonable
+  # deck can drive the dog-fooding pass.
 
-  def test_sample_has_21_slides_in_order
+  def test_sample_opens_with_at_least_one_slide
     skip_unless_sample
     Rbpptx.open(SAMPLE_PATH) do |pres|
-      assert_equal 21, pres.slides.length
-      assert_equal (1..21).map { |i| "slide#{i}" }, pres.slides.map(&:name)
+      assert_operator pres.slides.length, :>=, 1
+      pres.slides.each { |s| assert_match(/\Aslide\d+\z/, s.name) }
     end
   end
 
-  def test_sample_first_slide_contains_title_text
+  def test_sample_walks_every_slide_and_shape_without_raising
     skip_unless_sample
     Rbpptx.open(SAMPLE_PATH) do |pres|
-      texts = pres.slides.first.shapes.map(&:text)
-      assert_includes texts.join, "プロトタイピング"
-      assert_includes texts.join, "プレゼンテーション"
+      pres.slides.each do |slide|
+        slide.shapes.each do |shape|
+          assert_kind_of String, shape.text
+          assert(shape.placeholder_type.nil? || shape.placeholder_type.is_a?(Symbol))
+        end
+      end
     end
   end
 
-  def test_sample_second_slide_renders_paragraphs_with_newlines
+  def test_sample_round_trips_a_no_op_save_byte_for_byte
     skip_unless_sample
-    Rbpptx.open(SAMPLE_PATH) do |pres|
-      toc_shape = pres.slides[1].shapes.find { |s| s.text.include?("製品紹介") }
-      refute_nil toc_shape
-      assert_includes toc_shape.text, "\n"
-      assert_includes toc_shape.text, "プロジェクトのタイムライン"
+    Dir.mktmpdir do |dir|
+      out = File.join(dir, "roundtrip.pptx")
+      Rbpptx.open(SAMPLE_PATH) { |pres| pres.save(out) }
+
+      original = zip_entries(SAMPLE_PATH)
+      saved = zip_entries(out)
+      assert_equal original.keys.sort, saved.keys.sort
+      original.each do |name, bytes|
+        assert_equal bytes, saved.fetch(name), "entry #{name} differs after no-op save"
+      end
     end
   end
 
@@ -422,6 +428,8 @@ class RbpptxTest < Minitest::Test
   end
 
   def skip_unless_sample
-    skip "sample not present at #{SAMPLE_PATH}" unless File.exist?(SAMPLE_PATH)
+    return if SAMPLE_PATH && File.exist?(SAMPLE_PATH)
+
+    skip "set RBPPTX_SAMPLE to a .pptx path to enable dog-fooding tests"
   end
 end

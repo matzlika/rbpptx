@@ -231,21 +231,22 @@ read-modify-write. The advantage is real and reproducible:
 
 ```bash
 cd benchmark && npm install && cd ..
-bundle exec ruby benchmark/compare.rb
+RBPPTX_SAMPLE=/path/to/your/deck.pptx bundle exec ruby benchmark/compare.rb
 ```
 
 `uv` is required for the python-pptx subprocess; the comparison script
 invokes `uv run --with python-pptx python3 benchmark/python_pptx_compare.py`
 so no system-level Python install is mutated. The Node.js side runs from
 `benchmark/node_modules` (gitignored); rerun `npm install` after pulling
-benchmark changes.
+benchmark changes. Use any `.pptx` you have on hand — the table above
+was measured against an 18 MB deck with 21 slides and embedded fonts.
 
 To benchmark against a synthetic deck with no embedded media (isolates the
 XML-rewrite cost from binary deflate), generate a fixture first:
 
 ```bash
-uv run --with python-pptx python3 benchmark/fixture_gen.py 50 samples/bench_50.pptx
-RBPPTX_BENCH_SAMPLE=samples/bench_50.pptx bundle exec ruby benchmark/compare.rb
+uv run --with python-pptx python3 benchmark/fixture_gen.py 50 /tmp/bench_50.pptx
+RBPPTX_SAMPLE=/tmp/bench_50.pptx bundle exec ruby benchmark/compare.rb
 ```
 
 ## Development
@@ -267,5 +268,9 @@ The bulk of the test suite runs against a small in-tree fixture
 `rubyzip` and hand-coded OOXML. No external sample is required for a
 fresh checkout to get meaningful coverage of read, edit, save, and
 fidelity behavior. A handful of dog-fooding tests (`test_sample_*`) opt
-into a real-world deck at `samples/prototyping_presentation.pptx`
-(gitignored) and skip with a clear message when it is absent.
+into any real-world `.pptx` you point at via the `RBPPTX_SAMPLE`
+environment variable, and skip cleanly when it is unset:
+
+```bash
+RBPPTX_SAMPLE=/path/to/your/deck.pptx bundle exec ruby -Ilib -Itest test/rbpptx_test.rb
+```

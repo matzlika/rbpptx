@@ -10,10 +10,7 @@ require_relative "../lib/rbpptx"
 WARMUP = Integer(ENV.fetch("RBPPTX_BENCH_WARMUP", "1"))
 ITERATIONS = Integer(ENV.fetch("RBPPTX_BENCH_ITERATIONS", "5"))
 
-DEFAULT_SAMPLE = File.expand_path(
-  "../samples/prototyping_presentation.pptx", __dir__
-)
-SAMPLE = ENV.fetch("RBPPTX_BENCH_SAMPLE", DEFAULT_SAMPLE)
+SAMPLE = ENV["RBPPTX_BENCH_SAMPLE"] || ENV["RBPPTX_SAMPLE"]
 
 def rss_kb
   status = File.read("/proc/#{$$}/status")
@@ -152,9 +149,14 @@ def render_table(rows)
   data.each { |row| puts(format(fmt, *row)) }
 end
 
+if SAMPLE.nil? || SAMPLE.empty?
+  warn "no sample path configured"
+  warn "set RBPPTX_SAMPLE (or RBPPTX_BENCH_SAMPLE) to a .pptx file"
+  exit 1
+end
+
 unless File.exist?(SAMPLE)
   warn "sample not found at #{SAMPLE}"
-  warn "set RBPPTX_BENCH_SAMPLE or place a .pptx at the default path"
   exit 1
 end
 
