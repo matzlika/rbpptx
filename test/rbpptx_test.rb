@@ -236,6 +236,162 @@ class RbpptxTest < Minitest::Test
     end
   end
 
+  def test_paragraphs_split_at_a_p_boundaries
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      toc = pres.slides[1].shapes.find { |s| s.text.include?("製品紹介") }
+      refute_nil toc
+      assert_operator toc.paragraphs.length, :>, 1
+      assert_equal toc.text, toc.paragraphs.map(&:text).join("\n")
+    end
+  end
+
+  def test_runs_flattens_across_paragraphs
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      title = pres.slides.first.shapes.first
+      assert_equal 1, title.paragraphs.length
+      assert_equal ["プロトタイピング", " プレゼンテーション"], title.runs.map(&:text)
+    end
+  end
+
+  def test_paragraph_text_renders_br_as_newline_within_paragraph
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      title = pres.slides.first.shapes.first
+      assert_equal "プロトタイピング\n プレゼンテーション", title.paragraphs.first.text
+    end
+  end
+
+  def test_placeholder_type_for_known_placeholders
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      assert_equal :ctrTitle, pres.slides.first.shapes[0].placeholder_type
+      assert_equal :subTitle, pres.slides.first.shapes[1].placeholder_type
+    end
+  end
+
+  def test_placeholder_type_nil_for_non_placeholders
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      pres.slides.flat_map(&:shapes).each do |shape|
+        type = shape.placeholder_type
+        assert(type.nil? || type.is_a?(Symbol))
+      end
+    end
+  end
+
+  def test_run_text_setter_preserves_other_runs_in_same_shape
+    skip_unless_sample
+    Dir.mktmpdir do |dir|
+      out = File.join(dir, "run.pptx")
+      Rbpptx.open(SAMPLE_PATH) do |pres|
+        title = pres.slides.first.shapes.first
+        title.runs[0].text = "ハッカソン"
+        assert pres.slides.first.dirty?
+        pres.save(out)
+      end
+
+      Rbpptx.open(out) do |reloaded|
+        runs = reloaded.slides.first.shapes.first.runs
+        assert_equal ["ハッカソン", " プレゼンテーション"], runs.map(&:text)
+      end
+    end
+  end
+
+  def test_run_text_setter_preserves_rpr_attributes_byte_level
+    skip_unless_sample
+    Dir.mktmpdir do |dir|
+      out = File.join(dir, "rprkeep.pptx")
+      Rbpptx.open(SAMPLE_PATH) do |pres|
+        toc_title = pres.slides[1].shapes.find { |s| s.text == "目次" }
+        toc_title.runs[0].text = "Contents"
+        pres.save(out)
+      end
+
+      slide_xml = read_zip_entry(out, "ppt/slides/slide2.xml")
+      assert_includes slide_xml, "Contents"
+      refute_includes slide_xml, "目次"
+      # rPr attributes from original (size, font, color, language) must
+      # all still be present somewhere in this run.
+      assert_match(/sz="2400"/, slide_xml)
+      assert_match(/Montserrat/, slide_xml)
+      assert_match(%r{<a:srgbClr val="FFFFFF"}, slide_xml)
+      assert_match(/lang="ja"/, slide_xml)
+    end
+  end
+
+  def test_run_text_setter_preserves_a_br_soft_breaks
+    skip_unless_sample
+    Dir.mktmpdir do |dir|
+      out = File.join(dir, "br.pptx")
+      Rbpptx.open(SAMPLE_PATH) do |pres|
+        pres.slides.first.shapes.first.runs[0].text = "X"
+        pres.save(out)
+      end
+      slide1_xml = read_zip_entry(out, "ppt/slides/slide1.xml")
+      assert_includes slide1_xml, "<a:br>", "soft line break should survive run.text= edit"
+    end
+  end
+
+  def test_run_text_setter_marks_only_owning_slide_dirty
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      pres.slides[2].shapes.first.runs[0].text = "edited"
+      assert pres.slides[2].dirty?
+      refute pres.slides[0].dirty?
+      refute pres.slides[1].dirty?
+    end
+  end
+
+  def test_runs_skip_a_br_and_a_fld_elements
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      title = pres.slides.first.shapes.first
+      run_count = title.runs.length
+      child_count = title.paragraphs.first.instance_variable_get(:@node).element_children.length
+      assert_operator child_count, :>, run_count,
+                      "paragraph should have non-run children (e.g. <a:br>) excluded from runs"
+    end
+  end
+
+  def test_paragraphs_returns_empty_for_shape_without_txbody
+    skip_unless_sample
+    Rbpptx.open(SAMPLE_PATH) do |pres|
+      txless = pres.slides.flat_map(&:shapes).find { |s| !has_txbody?(s) }
+      skip "no shape without <p:txBody> found in sample" unless txless
+
+      assert_equal [], txless.paragraphs
+      assert_equal [], txless.runs
+      assert_equal "", txless.text
+    end
+  end
+
+  def test_run_level_edit_preserves_endpararpr_that_shape_edit_destroys
+    skip_unless_sample
+    Dir.mktmpdir do |dir|
+      run_out = File.join(dir, "run.pptx")
+      shape_out = File.join(dir, "shape.pptx")
+
+      Rbpptx.open(SAMPLE_PATH) do |pres|
+        pres.slides.first.shapes.first.runs[0].text = "Z"
+        pres.save(run_out)
+      end
+      Rbpptx.open(SAMPLE_PATH) do |pres|
+        pres.slides.first.shapes.first.text = "Z\n プレゼンテーション"
+        pres.save(shape_out)
+      end
+
+      run_xml = read_zip_entry(run_out, "ppt/slides/slide1.xml")
+      shape_xml = read_zip_entry(shape_out, "ppt/slides/slide1.xml")
+
+      assert_includes run_xml, "<a:br>",
+                      "run-level edit must preserve <a:br> soft break"
+      refute_includes shape_xml, "<a:br>",
+                      "shape-level edit drops the <a:br>"
+    end
+  end
+
   private
 
   def zip_entries(path)
@@ -251,7 +407,7 @@ class RbpptxTest < Minitest::Test
 
   def read_zip_entry(path, name)
     require "zip"
-    Zip::File.open(path) { |zf| zf.find_entry(name).get_input_stream.read }
+    Zip::File.open(path) { |zf| zf.find_entry(name).get_input_stream.read.force_encoding("UTF-8") }
   end
 
   def has_txbody?(shape)

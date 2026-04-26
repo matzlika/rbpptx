@@ -6,6 +6,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Rbpptx::Paragraph` and `Rbpptx::Run` wrappers, exposing the OOXML
+  paragraph and run granularity below `Rbpptx::Shape`. `shape.paragraphs`
+  returns the shape's `<a:p>` children; `shape.runs` flattens runs across
+  paragraphs in document order.
+- `Rbpptx::Run#text=` — surgical text setter that rewrites only the run's
+  `<a:t>` content. `<a:rPr>`, `<a:br>` soft breaks, sibling runs,
+  paragraph properties, `<a:endParaRPr>`, and unknown OOXML extensions on
+  the shape are all preserved. Use this instead of `shape.text=` when the
+  template's per-run formatting matters (e.g. replacing a `{{slot}}`
+  marker inside a multi-run paragraph).
+- `Rbpptx::Shape#placeholder_type` — returns the placeholder role as a
+  Symbol (`:ctrTitle`, `:subTitle`, `:title`, `:body`, `:obj`, `:ftr`,
+  `:dt`, `:sldNum`, `:pic`, ...) by reading
+  `<p:nvSpPr>/<p:nvPr>/<p:ph type="...">`. Returns `:body` when the
+  placeholder element is present without a `type` attribute (matches the
+  OOXML default), and `nil` for non-placeholder shapes.
+- `benchmark/compare.rb` driving rbpptx scenarios and subprocessing
+  python-pptx via `uv run --with python-pptx`. Three scenarios: read (open
+  + walk all slides + concatenate text), fill_one (replace one shape +
+  save), fill_many (replace 10 shapes + save). Configurable via
+  `RBPPTX_BENCH_SAMPLE`, `RBPPTX_BENCH_WARMUP`, `RBPPTX_BENCH_ITERATIONS`.
+- `benchmark/fixture_gen.py` synthesizes a sized deck with `{{slot_*}}`
+  markers via python-pptx, so save-path benchmarks can isolate the cost
+  of the XML rewrite from the cost of re-deflating embedded media.
+
+### Changed
+
+- `Rbpptx::Shape#text` now delegates to `paragraphs.map(&:text).join("\n")`
+  so the bulldozer getter and the surgical accessors share one
+  implementation. Output unchanged.
+
 ## [0.1.0] - 2026-04-26
 
 - Initial public release.

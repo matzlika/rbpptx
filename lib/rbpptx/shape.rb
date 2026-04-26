@@ -3,10 +3,22 @@ require "cgi"
 module Rbpptx
   # A single shape (+<p:sp>+) on a slide.
   #
-  # Currently exposes the shape's display name, its concatenated text, and a
-  # text setter that rewrites the shape's text body while preserving the run
-  # properties (+<a:rPr>+) of the first existing run, so font/size/color from
-  # the template carry through to the replacement.
+  # Two layers of text access are exposed:
+  #
+  # * {#text} / {#text=} — bulldozer-level: read the entire concatenated
+  #   text body, or replace it wholesale. The setter cleans the text body's
+  #   +<a:p>+ children and rebuilds them, cloning the first existing
+  #   +<a:rPr>+ onto each new run so template formatting carries through.
+  # * {#paragraphs} / {#runs} — surgical: walk into individual {Paragraph}
+  #   and {Run} wrappers and mutate run text via {Run#text=}, which only
+  #   rewrites +<a:t>+ content. Run properties, hyperlinks, soft line
+  #   breaks, paragraph properties, and any unknown OOXML extensions on the
+  #   shape are preserved.
+  #
+  # In addition, {#placeholder_type} reads the shape's placeholder role from
+  # +<p:nvSpPr>/<p:nvPr>/<p:ph type="...">+ so callers can target shapes by
+  # semantic role (e.g. +:ctrTitle+, +:subTitle+, +:body+) instead of by
+  # index.
   class Shape
     P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main".freeze
     A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main".freeze
@@ -25,20 +37,53 @@ module Rbpptx
       @node.at_xpath("./p:nvSpPr/p:cNvPr/@name", "p" => P_NS)&.value
     end
 
+    # @return [Symbol, nil] the placeholder type as a Symbol (e.g.
+    #   +:ctrTitle+, +:subTitle+, +:title+, +:body+, +:obj+, +:ftr+,
+    #   +:dt+, +:sldNum+, +:pic+), or +nil+ if the shape is not a
+    #   placeholder. Returns +:body+ when the shape has a +<p:ph>+ element
+    #   with no +type+ attribute, matching the OOXML default.
+    def placeholder_type
+      ph = @node.at_xpath("./p:nvSpPr/p:nvPr/p:ph", "p" => P_NS)
+      return nil unless ph
+
+      type = ph["type"]
+      type ? type.to_sym : :body
+    end
+
+    # @return [Array<Paragraph>] paragraphs in the shape's text body, in
+    #   document order. Returns +[]+ if the shape has no +<p:txBody>+ (e.g.
+    #   picture or group shapes).
+    def paragraphs
+      txbody = @node.at_xpath("./p:txBody", "p" => P_NS)
+      return [] unless txbody
+
+      txbody.xpath("./a:p", "a" => A_NS).map { |p| Paragraph.new(node: p, slide: @slide) }
+    end
+
+    # @return [Array<Run>] all runs in the shape's text body, flattened
+    #   across paragraphs in document order
+    def runs
+      paragraphs.flat_map(&:runs)
+    end
+
     # Concatenated text of the shape's text body. Paragraphs are joined with
-    # +"\n"+; soft line breaks (+<a:br>+) inside a paragraph are also rendered
-    # as +"\n"+.
+    # +"\n"+; soft line breaks (+<a:br>+) inside a paragraph are also
+    # rendered as +"\n"+.
     #
     # @return [String]
     def text
-      paragraphs = @node.xpath("./p:txBody/a:p", "p" => P_NS, "a" => A_NS)
-      paragraphs.map { |p| paragraph_text(p) }.join("\n")
+      paragraphs.map(&:text).join("\n")
     end
 
-    # Replaces the shape's text body with +new_text+. Lines (separated by
-    # +"\n"+) become individual +<a:p>+ paragraphs. Run properties from the
-    # first existing +<a:rPr>+ (font, size, color, language) are cloned onto
-    # each new run so that template formatting survives the rewrite.
+    # Replaces the shape's text body. Lines (separated by +"\n"+) become
+    # individual +<a:p>+ paragraphs. Run properties from the first existing
+    # +<a:rPr>+ (font, size, color, language) are cloned onto each new run
+    # so template formatting carries through.
+    #
+    # This is the bulldozer-level setter; for edits that need to preserve
+    # individual run formatting (e.g. replacing a placeholder inside a
+    # multi-run paragraph), use {#runs} or {#paragraphs} and {Run#text=}
+    # instead.
     #
     # Shapes without a +<p:txBody>+ (e.g. picture or group shapes) cannot
     # accept text and will raise.
@@ -68,22 +113,6 @@ module Rbpptx
     end
 
     private
-
-    def paragraph_text(paragraph)
-      buf = +""
-      paragraph.children.each do |child|
-        next unless child.namespace&.href == A_NS
-
-        case child.name
-        when "r"
-          t = child.at_xpath("./a:t", "a" => A_NS)
-          buf << t.text if t
-        when "br"
-          buf << "\n"
-        end
-      end
-      buf
-    end
 
     def build_paragraphs_xml(lines)
       lines.map do |line|

@@ -63,6 +63,25 @@ module Rbpptx
 
     def initialize: (node: untyped, ?slide: Slide?) -> void
     def name: () -> String?
+    def placeholder_type: () -> Symbol?
+    def paragraphs: () -> Array[Paragraph]
+    def runs: () -> Array[Run]
+    def text: () -> String
+    def text=: (String new_text) -> String
+  end
+
+  class Paragraph
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: Slide?) -> void
+    def runs: () -> Array[Run]
+    def text: () -> String
+  end
+
+  class Run
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: Slide?) -> void
     def text: () -> String
     def text=: (String new_text) -> String
   end

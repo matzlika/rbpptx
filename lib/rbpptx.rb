@@ -2,6 +2,8 @@ require "nokogiri"
 require "zip"
 
 require_relative "rbpptx/errors"
+require_relative "rbpptx/run"
+require_relative "rbpptx/paragraph"
 require_relative "rbpptx/shape"
 require_relative "rbpptx/slide"
 require_relative "rbpptx/presentation"

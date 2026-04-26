@@ -16,13 +16,19 @@ and any unknown OOXML extensions remain in place. The first existing
 `<a:rPr>` (font, size, color, language) is cloned onto each new run, so
 template formatting carries through to the replacement text.
 
-Supported in 0.1.0:
+Supported:
 
 - open an existing `.pptx`, enumerate slides in presentation order
-- read every shape's name and concatenated text (paragraph breaks rendered
-  as `\n`, soft line breaks `<a:br>` rendered as `\n`)
-- replace a shape's text via `shape.text = "..."`, preserving template run
-  properties from the first existing run
+- read every shape's name, concatenated text, and placeholder type
+  (`:ctrTitle`, `:subTitle`, `:body`, ...)
+- walk into paragraphs and runs (`shape.paragraphs`, `shape.runs`,
+  `paragraph.runs`)
+- **bulldozer setter**: `shape.text = "..."` replaces the entire text body,
+  cloning the first existing `<a:rPr>` onto each new run so template
+  formatting carries through
+- **surgical setter**: `run.text = "..."` rewrites only the run's `<a:t>`
+  content, preserving `<a:rPr>`, soft line breaks, sibling runs, paragraph
+  properties, and unknown OOXML extensions
 - save back to a new path, or overwrite the original via temp-file + atomic
   rename — unmodified entries stream through untouched
 
@@ -81,6 +87,9 @@ not necessarily the slide-part filename order.
 
 ### Editing text and saving
 
+The bulldozer setter replaces a shape's entire text body. Lines (separated
+by `"\n"`) become individual `<a:p>` paragraphs:
+
 ```ruby
 require "rbpptx"
 
@@ -91,7 +100,30 @@ Rbpptx.open("template.pptx") do |pres|
 end
 ```
 
-Lines (separated by `"\n"`) become individual `<a:p>` paragraphs.
+The surgical setter rewrites only the targeted run's `<a:t>`, preserving
+all other formatting and structural XML. Use it for `{{slot}}`-style
+template fills where a marker run sits inside a multi-run paragraph:
+
+```ruby
+Rbpptx.open("template.pptx") do |pres|
+  pres.slides.each do |slide|
+    slide.shapes.flat_map(&:runs).each do |run|
+      run.text = run.text.gsub("{{name}}", "Acme")
+    end
+  end
+  pres.save("filled.pptx")
+end
+```
+
+Or target by placeholder role:
+
+```ruby
+Rbpptx.open("template.pptx") do |pres|
+  pres.slides.first.shapes.find { |s| s.placeholder_type == :ctrTitle }.text = "Q2 Review"
+  pres.slides.first.shapes.find { |s| s.placeholder_type == :subTitle }.text = "Acme Inc."
+  pres.save("filled.pptx")
+end
+```
 
 ### Same-path overwrite
 
@@ -162,6 +194,50 @@ end
 - **Atomic same-path save.** `save` writes to a sibling temp file and
   renames it into place, so a crash mid-write cannot leave a half-written
   `.pptx` at the target path.
+
+## Benchmarks
+
+The selling-point story for `rbpptx` is on real-world decks where the
+package carries embedded media — themes, slide masters, slide layouts,
+images, fonts. `python-pptx` parses these eagerly at `Presentation(path)`
+time; `rbpptx` defers everything past `presentation.xml` and its rels, so
+the open-and-read path stays cheap regardless of how much binary mass the
+deck carries.
+
+Real-world deck (18 MB, 21 slides, embedded fonts and images), 5 iterations:
+
+| benchmark             | rbpptx (s) | python-pptx (s) | speedup |
+| ---                   | ---:       | ---:            | ---:    |
+| read (walk all text)  | **0.019**  | 0.088           | **4.6x faster** |
+| fill_one (1 + save)   | 0.558      | 0.565           | tied    |
+| fill_many (10 + save) | 0.558      | 0.554           | tied    |
+
+Memory (RSS delta) on the read scenario:
+
+| library      | rss Δ (kB) |
+| ---          | ---:       |
+| rbpptx       | **3,232**  |
+| python-pptx  | 28,416     |
+
+`fill_one` / `fill_many` are bottlenecked by re-deflating the 18 MB ZIP
+package; both libraries do the same work there. The advantage on read is
+real and reproducible:
+
+```bash
+bundle exec ruby benchmark/compare.rb
+```
+
+`uv` is required for the python-pptx subprocess; the comparison script
+invokes `uv run --with python-pptx python3 benchmark/python_pptx_compare.py`
+so no system-level Python install is mutated.
+
+To benchmark against a synthetic deck with no embedded media (isolates the
+XML-rewrite cost from binary deflate), generate a fixture first:
+
+```bash
+uv run --with python-pptx python3 benchmark/fixture_gen.py 50 samples/bench_50.pptx
+RBPPTX_BENCH_SAMPLE=samples/bench_50.pptx bundle exec ruby benchmark/compare.rb
+```
 
 ## Development
 
