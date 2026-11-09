@@ -29,51 +29,189 @@ module Rbpptx
     P_NS: String
     A_NS: String
     R_NS: String
+    P14_NS: String
     PKG_REL_NS: String
     OFFICE_DOC_REL_TYPE: String
     SLIDE_REL_TYPE: String
+    NOTES_SLIDE_REL_TYPE: String
+    NOTES_MASTER_REL_TYPE: String
+    NOTES_SLIDE_CONTENT_TYPE: String
+    LEGACY_PPT_SIGNATURE: String
+    ZIP_SIGNATURE: String
 
     attr_reader path: String
 
     def self.open: (pathish path) -> Presentation
     def initialize: (pathish path) -> void
     def slides: () -> Array[Slide]
+    def slide: (Integer index) -> Slide
+    def move_slide: (Slide | Integer slide_or_index, Integer new_index) -> Array[Slide]
+    def delete_slide: (Slide | Integer slide_or_index, ?unlink: bool) -> Slide
     def save: (pathish path) -> String
     def close: () -> bool
     def closed?: () -> bool
+    def create_notes_slide_for: (Slide slide) -> NotesSlide
   end
 
-  class Slide
-    P_NS: String
+  # @api private
+  class Package
+    PKG_REL_NS: String
+    CT_NS: String
+    CONTENT_TYPES_PART: String
+    SAVE_OPTIONS: Integer
 
-    attr_reader part_name: String
+    class Relationship < Struct[untyped]
+      attr_accessor id: String
+      attr_accessor type: String
+      attr_accessor target: String
+      attr_accessor part: String?
+      attr_accessor external: bool
+    end
 
-    def initialize: (zip: untyped, part_name: String) -> void
-    def name: () -> String
-    def shapes: () -> Array[Shape]
-    def dirty?: () -> bool
+    attr_reader path: String
+
+    def initialize: (String path) -> void
+    def close: () -> void
+    def part?: (String name) -> bool
+    def part_names: () -> Array[String]
+    def xml: (String name, ?error_class: singleton(Error)) -> untyped
+    def touch: (String name) -> true
+    def add: (String name, untyped doc) -> untyped
+    def delete: (String name) -> void
+    def rels_part_for: (String part) -> String
+    def relationships: (String part) -> Array[Relationship]
+    def related: (String part, String rel_type) -> Array[String]
+    def referrers_of: (String target_part) -> Array[String]
+    def add_relationship: (String source, String rel_type, String target_part) -> String
+    def remove_relationship: (String source, String rid) -> void
+    def resolve: (String source, String target) -> String
+    def relative_target: (String source, String target_part) -> String
+    def add_content_type_override: (String part, String content_type) -> void
+    def remove_content_type_override: (String part) -> void
+    def save: (String out_path) -> String
+  end
+
+  interface _DirtyTracking
     def mark_dirty!: () -> bool
-    def clear_dirty!: () -> bool
-    def to_xml: () -> String
   end
 
-  class Shape
-    P_NS: String
+  module TextBody
     A_NS: String
 
-    def initialize: (node: untyped, ?slide: Slide?) -> void
-    def name: () -> String?
-    def placeholder_type: () -> Symbol?
     def paragraphs: () -> Array[Paragraph]
     def runs: () -> Array[Run]
     def text: () -> String
     def text=: (String new_text) -> String
   end
 
+  module ShapeContainer
+    P_NS: String
+    A_NS: String
+
+    def shapes: () -> Array[Shape]
+    def groups: () -> Array[GroupShape]
+    def tables: () -> Array[Table]
+    def all_shapes: () -> Array[Shape]
+    def all_tables: () -> Array[Table]
+  end
+
+  class SlidePart
+    include ShapeContainer
+
+    attr_reader part_name: String
+
+    def initialize: (package: Package, part_name: String) -> void
+    def placeholders: () -> Placeholders
+    def dirty?: () -> bool
+    def mark_dirty!: () -> bool
+    def clear_dirty!: () -> bool
+    def to_xml: () -> String
+  end
+
+  class Slide < SlidePart
+    NOTES_SLIDE_REL_TYPE: String
+
+    def initialize: (package: Package, part_name: String, ?presentation: Presentation?) -> void
+    def name: () -> String
+    def title: () -> Shape?
+    def notes_slide: () -> NotesSlide?
+    def notes: () -> String
+    def notes=: (String new_text) -> String
+  end
+
+  class NotesSlide < SlidePart
+    def notes_placeholder: () -> Shape?
+    def text: () -> String
+    def text=: (String new_text) -> String
+  end
+
+  class Shape
+    include TextBody
+
+    P_NS: String
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
+    def name: () -> String?
+    def placeholder?: () -> bool
+    def placeholder_type: () -> Symbol?
+    def placeholder_idx: () -> Integer?
+  end
+
+  class GroupShape
+    include ShapeContainer
+
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
+    def name: () -> String?
+    def text: () -> String
+  end
+
+  class Placeholders
+    include Enumerable[Shape]
+
+    def initialize: (Array[Shape] shapes) -> void
+    def each: () { (Shape) -> void } -> self
+            | () -> Enumerator[Shape, self]
+    def []: (Symbol | Integer key) -> Shape?
+    def size: () -> Integer
+    def length: () -> Integer
+    def empty?: () -> bool
+    def to_a: () -> Array[Shape]
+  end
+
+  class Table
+    P_NS: String
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
+    def name: () -> String?
+    def rows: () -> Array[TableRow]
+    def row_count: () -> Integer
+    def column_count: () -> Integer
+    def cell: (Integer row, Integer col) -> TableCell?
+  end
+
+  class TableRow
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
+    def cells: () -> Array[TableCell]
+  end
+
+  class TableCell
+    include TextBody
+
+    A_NS: String
+
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
+    def merge_origin?: () -> bool
+    def spanned?: () -> bool
+  end
+
   class Paragraph
     A_NS: String
 
-    def initialize: (node: untyped, ?slide: Slide?) -> void
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
     def runs: () -> Array[Run]
     def text: () -> String
   end
@@ -81,7 +219,7 @@ module Rbpptx
   class Run
     A_NS: String
 
-    def initialize: (node: untyped, ?slide: Slide?) -> void
+    def initialize: (node: untyped, ?slide: _DirtyTracking?) -> void
     def text: () -> String
     def text=: (String new_text) -> String
   end

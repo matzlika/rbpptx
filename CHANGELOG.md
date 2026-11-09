@@ -6,6 +6,52 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Placeholder-aware API: `Slide#title` (the `:title` / `:ctrTitle`
+  placeholder), `Slide#placeholders` returning `Rbpptx::Placeholders`
+  (`placeholders[:body]` by type, `placeholders[1]` by `<p:ph idx>`),
+  `Shape#placeholder?` and `Shape#placeholder_idx`.
+- Speaker notes: `Slide#notes` / `Slide#notes=`, `Slide#notes_slide`
+  returning `Rbpptx::NotesSlide`. Setting notes on a slide without a notes
+  page creates one from the notes master; raises `Rbpptx::Error` when the
+  presentation has no notes master.
+- Group shapes and tables: `Slide#groups` (`Rbpptx::GroupShape`, nestable),
+  `Slide#all_shapes` (every `<p:sp>`, descending into groups),
+  `Slide#tables` / `Slide#all_tables` (`Rbpptx::Table`, `TableRow`,
+  `TableCell`). Table cells support the same `text` / `text=` /
+  `paragraphs` / `runs` API as shapes, plus `merge_origin?` / `spanned?`.
+- Slide structure edits: `Presentation#move_slide`,
+  `Presentation#delete_slide` (removes the notes page, section and
+  custom-show entries, relationships, and content-type overrides; refuses
+  when another part still references the slide unless `unlink: true` is
+  given, which strips "jump to slide" hyperlinks first), and
+  `Presentation#slide(index)` raising `Rbpptx::SlideNotFoundError`.
+
+### Changed
+
+- Allow `rubyzip` 3.x (`>= 2.3, < 4`). Development dependencies now allow
+  `rbs` 4.x and `rdoc` 8.x.
+- Re-serialized parts are written without pretty-printing, so edits no
+  longer re-indent single-line XML.
+- `text=` (shapes and table cells) keeps template formatting on empty
+  fields: when the body has no runs, the first `<a:endParaRPr>` is used as
+  the run template, and the first paragraph's `<a:pPr>` (alignment,
+  indent) and `<a:endParaRPr>` are cloned onto every new paragraph.
+  Previously, filling an empty form field fell back to PowerPoint's default
+  18pt text and lost the field's alignment.
+
+### Fixed
+
+- Saving a package whose ZIP entries use data descriptors (general-purpose
+  bit 3, as written by Google Slides exports and other streaming zippers)
+  produced a file PowerPoint refused to open, even for a no-op save. The
+  flag is now cleared on raw-copied entries, whose local headers carry the
+  real CRC and sizes.
+- Saving twice from the same `Presentation` lost the edits made before the
+  first save; saving over the source file broke later lazy reads of
+  not-yet-parsed slides.
+
 ## [0.1.0] - 2026-04-26
 
 - Initial public release.

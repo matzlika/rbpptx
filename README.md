@@ -29,6 +29,13 @@ Supported:
 - **surgical setter**: `run.text = "..."` rewrites only the run's `<a:t>`
   content, preserving `<a:rPr>`, soft line breaks, sibling runs, paragraph
   properties, and unknown OOXML extensions
+- placeholder-aware access: `slide.title`, `slide.placeholders[:body]`,
+  `slide.placeholders[1]` (by `idx`)
+- speaker notes: read and write `slide.notes`; a notes page is created from
+  the notes master when the slide has none
+- text inside group shapes (nested to any depth) and table cells:
+  `slide.groups`, `slide.all_shapes`, `slide.tables`, `table.cell(r, c)`
+- reorder and delete slides: `pres.move_slide`, `pres.delete_slide`
 - save back to a new path, or overwrite the original via temp-file + atomic
   rename — unmodified entries stream through untouched
 
@@ -36,10 +43,10 @@ Out of scope:
 
 - creating a presentation from scratch — `Rbpptx.new` is reserved for a
   future release and currently raises `NotImplementedError`
-- inserting / deleting / reordering / duplicating slides
+- inserting / duplicating slides
 - editing media (images, embedded fonts) or adding new shapes
-- placeholder-aware API (`slide.title`, `slide.placeholders[:body]`)
-- notes pages, comments, charts, SmartArt
+- adding / removing table rows and columns, table styling
+- comments, charts, SmartArt
 - legacy `.ppt` (BIFF/CFB) input — `rbpptx` reads OOXML `.pptx` only.
   Convert first, e.g. `libreoffice --headless --convert-to pptx file.ppt`.
   `Rbpptx.open` detects the OLE compound-file magic and raises
@@ -58,7 +65,7 @@ Or in a `Gemfile`:
 gem "rbpptx"
 ```
 
-Requires Ruby 3.2+, `nokogiri`, and `rubyzip`.
+Requires Ruby 3.2+, `nokogiri`, and `rubyzip` (2.3+ or 3.x).
 
 ## Usage
 
@@ -115,15 +122,91 @@ Rbpptx.open("template.pptx") do |pres|
 end
 ```
 
-Or target by placeholder role:
+### Placeholders
+
+Target shapes by placeholder role instead of by position:
 
 ```ruby
 Rbpptx.open("template.pptx") do |pres|
-  pres.slides.first.shapes.find { |s| s.placeholder_type == :ctrTitle }.text = "Q2 Review"
-  pres.slides.first.shapes.find { |s| s.placeholder_type == :subTitle }.text = "Acme Inc."
+  slide = pres.slides.first
+  slide.title.text = "Q2 Review"                    # :title or :ctrTitle
+  slide.placeholders[:subTitle].text = "Acme Inc."  # Symbol: by type
+  slide.placeholders[1].text = "Acme Inc."          # Integer: by <p:ph idx>
+  slide.placeholders.map(&:placeholder_type)        # => [:ctrTitle, :subTitle]
   pres.save("filled.pptx")
 end
 ```
+
+Integer keys follow python-pptx and match the placeholder's `idx`
+attribute, not its position in the list.
+
+### Speaker notes
+
+```ruby
+Rbpptx.open("deck.pptx") do |pres|
+  pres.slides.each { |s| puts s.notes }   # "" when the slide has no notes page
+  pres.slides[0].notes = "Talk about Q2.\nThen Q3."
+  pres.save("deck.pptx")
+end
+```
+
+Setting notes on a slide without a notes page creates one from the
+presentation's notes master (new part, relationships, and content-type
+override). Decks that have never had notes may lack a notes master; in that
+case `notes=` raises `Rbpptx::Error` — add a note in PowerPoint once to
+create it.
+
+### Groups and tables
+
+`slide.shapes` returns only the top-level `<p:sp>` shapes. Shapes inside
+group shapes and the text of table cells are reachable separately:
+
+```ruby
+Rbpptx.open("deck.pptx") do |pres|
+  slide = pres.slides[0]
+
+  slide.groups.first.shapes        # direct children of a group
+  slide.all_shapes                 # every <p:sp>, descending into nested groups
+  slide.all_shapes.flat_map(&:runs).each { |r| r.text = r.text.gsub("{{name}}", "Acme") }
+
+  table = slide.tables.first       # slide.all_tables also searches groups
+  table.row_count                  # => 3
+  table.cell(0, 1).text            # => "Q2"
+  table.cell(1, 1).text = "42"     # same setters as Shape (text=, runs, paragraphs)
+  table.rows.map { |row| row.cells.map(&:text) }
+  table.cell(1, 0).spanned?        # covered by a merged cell?
+
+  pres.save("deck.pptx")
+end
+```
+
+### Reordering and deleting slides
+
+```ruby
+Rbpptx.open("deck.pptx") do |pres|
+  pres.move_slide(0, -1)             # first slide to the end
+  pres.move_slide(pres.slides[3], 0)
+  pres.delete_slide(2)               # also removes its notes page
+  pres.slide(0).name                 # raises SlideNotFoundError when out of range
+  pres.save("deck.pptx")
+end
+```
+
+`delete_slide` removes the slide's `<p:sldId>`, its relationship, its
+custom-show and section entries, its content-type override, and the slide
+and notes parts. Shared parts (layouts, images) are kept.
+
+If another slide still points at the one being deleted — typically a
+"jump to slide" link on an agenda slide — deletion is refused with
+`Rbpptx::Error`, because PowerPoint treats a dangling reference as a
+corrupt file. Pass `unlink: true` to remove those hyperlinks first (the
+link text stays):
+
+```ruby
+pres.delete_slide(5, unlink: true)
+```
+
+References that are not hyperlinks are always refused.
 
 ### Same-path overwrite
 
@@ -164,7 +247,7 @@ the presentation path and (where relevant) the offending part name:
 | `Rbpptx::UnsupportedFormatError`   | file is empty, not a ZIP, or a legacy `.ppt` (BIFF/CFB) container |
 | `Rbpptx::PresentationFormatError`  | `_rels/.rels`, `ppt/presentation.xml`, or its rels are malformed  |
 | `Rbpptx::SlideFormatError`         | a slide part is missing or its XML cannot be parsed               |
-| `Rbpptx::SlideNotFoundError`       | reserved for future index-based slide accessors                   |
+| `Rbpptx::SlideNotFoundError`       | `slide(i)` / `move_slide` / `delete_slide` index is out of range  |
 | `Rbpptx::ClosedPresentationError`  | `slides` / `save` called after `close`                            |
 
 ```ruby
@@ -188,7 +271,10 @@ end
   re-serialize only the slides whose shapes have been mutated, and stream
   every other ZIP entry through with its already-deflated bytes
   (`Zip::OutputStream#copy_raw_entry`) — no decompress, no re-deflate.
-  Bit-identical preservation, not just content-identical.
+  The compressed payload is copied verbatim. Entries written by streaming
+  zippers (e.g. Google Slides exports) get their "data descriptor" flag
+  cleared, since the real CRC and sizes are written into the local header
+  instead.
 - **rPr cloning, not rebuilding.** When a shape's text is replaced, the
   first existing `<a:rPr>` is deep-cloned onto each new run. A template's
   font, size, color, and `lang` attribute carry through without `rbpptx`
