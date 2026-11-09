@@ -19,6 +19,6 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb"] + Dir["sig/**/*.rbs"] + %w[CHANGELOG.md LICENSE.txt README.md Rakefile]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "rubyzip", "~> 2.3"
+  spec.add_dependency "rubyzip", ">= 2.3", "< 4"
   spec.add_dependency "nokogiri", ">= 1.19", "< 2.0"
 end
